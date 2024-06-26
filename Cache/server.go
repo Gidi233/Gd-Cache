@@ -1,3 +1,4 @@
+
 package Cache
 
 import (
@@ -10,6 +11,7 @@ import (
 
 	pb "github.com/Gidi233/Gd-Cache/CachePB"
 	"github.com/Gidi233/Gd-Cache/consistentHash"
+	"github.com/Gidi233/Gd-Cache/register"
 	"google.golang.org/grpc"
 )
 
@@ -29,6 +31,7 @@ type server struct {
 
 	addr       string     // format: ip:port
 	status     bool       // true: running / false: stop
+	stopSignal chan error // 通知 etcd 停止的信号
 	mu         sync.Mutex
 	consHash   *consistentHash.Map
 	clients    map[string]*client
@@ -84,7 +87,16 @@ func (s *server) Start() error {
 		s.mu.Unlock()
 		return fmt.Errorf("Cache server %s already running", s.addr)
 	}
+	/*
+	   1. 设置 s.status = true, 代表服务正在运行
+	   2. 初始化 stop channel, 用于通知 register stop keep alive
+	   3. 初始化 TCP Socket 并开始监听
+	   4. 注册 RPC 服务到 gRPC, gRPC 开始接受 Request 并分发给 server 处理
+	   5. 将自己的服务注册到 etcd, client 可通过 etcd 发现服务
+	*/
+
 	s.status = true
+	s.stopSignal = make(chan error)
 
 	port := strings.Split(s.addr, ":")[1]
 	lis, err := net.Listen("tcp", ":"+port)
@@ -93,6 +105,23 @@ func (s *server) Start() error {
 	}
 	grpcServer := grpc.NewServer()
 	pb.RegisterGroupCacheServer(grpcServer, s)
+
+	// 注册服务到 etcd
+	go func() {
+		// 创建一个 etcd, 除非错误否则一直运行
+		err := register.Register("Cache", s.addr, s.stopSignal)
+		if err != nil {
+			log.Fatalf(err.Error())
+		}
+		// Close channel
+		close(s.stopSignal)
+		// Close TCP listen
+		err = lis.Close()
+		if err != nil {
+			log.Fatalf(err.Error())
+		}
+		log.Printf("[%s] Revoke service and close tcp socket ok.", s.addr)
+	}()
 
 	s.mu.Unlock()
 
@@ -143,6 +172,7 @@ func (s *server) Stop() {
 		return
 	}
 
+	s.stopSignal <- nil // 发送信号,停止 keepalive 信号
 	s.status = false
 	s.clients = nil
 	s.consHash = nil
