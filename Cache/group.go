@@ -24,6 +24,7 @@ type Group struct {
 	name      string
 	getter    Getter
 	mainCache cache
+	picker    Picker
 }
 
 var (
@@ -89,7 +90,24 @@ func (g *Group) Get(key string) (ByteView, error) {
 // 	g.mainCache.delete(key)
 // }
 
+func (g *Group) RegisterPeers(peers Picker) {
+	if g.picker != nil {
+		panic("RegisterPeerPicker called more than once")
+	}
+
+	g.picker = peers
+}
+
 func (g *Group) load(key string) (value ByteView, err error) {
+	if g.picker != nil {
+		if peer, ok := g.picker.Pick(key); ok {
+			bytes, err := peer.Fetch(g.name, key)
+			if err == nil {
+				return ByteView{b: bytes}, nil
+			}
+			log.Printf("[Cache] Failed to get [%s] from peer, %s\n", key, err.Error())
+		}
+	}
 	return g.getLocally(key)
 }
 
