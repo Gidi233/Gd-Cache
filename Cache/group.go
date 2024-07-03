@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"sync"
+
+	"github.com/Gidi233/Gd-Cache/singleFlight"
 )
 
 // Getter 是一个加载指定 key 的数据的接口
@@ -25,6 +27,7 @@ type Group struct {
 	getter    Getter
 	mainCache cache
 	picker    Picker
+	loader    *singleFlight.Group
 }
 
 var (
@@ -44,6 +47,7 @@ func NewGroup(name string, cacheBytes int64, getter Getter) *Group {
 		name:      name,
 		getter:    getter,
 		mainCache: cache{cacheBytes: cacheBytes},
+		loader:    &singleFlight.Group{},
 	}
 	groups[name] = g
 
@@ -99,16 +103,25 @@ func (g *Group) RegisterPeers(peers Picker) {
 }
 
 func (g *Group) load(key string) (value ByteView, err error) {
-	if g.picker != nil {
-		if peer, ok := g.picker.Pick(key); ok {
-			bytes, err := peer.Fetch(g.name, key)
-			if err == nil {
-				return ByteView{b: bytes}, nil
+	// 每个 key 只加载一次，无论是缓存还是数据库, 无论是否并发
+	view, err := g.loader.Do(key, func() (interface{}, error) {
+		if g.picker != nil {
+			if peer, ok := g.picker.Pick(key); ok {
+				bytes, err := peer.Fetch(g.name, key)
+				if err == nil {
+					return ByteView{b: bytes}, nil
+				}
+				log.Printf("[Cache] Failed to get [%s] from peer, %s\n", key, err.Error())
 			}
-			log.Printf("[Cache] Failed to get [%s] from peer, %s\n", key, err.Error())
 		}
+		return g.getLocally(key)
+	})
+
+	if err == nil {
+		return view.(ByteView), nil
 	}
-	return g.getLocally(key)
+
+	return
 }
 
 func (g *Group) getLocally(key string) (ByteView, error) {
