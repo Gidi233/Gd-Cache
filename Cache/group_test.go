@@ -12,7 +12,7 @@ var db = map[string]string{
 	"realtest": "888",
 }
 
-func TestGeeCache_Getter(t *testing.T) {
+func TestCache_Getter(t *testing.T) {
 	var f Getter = GetterFunc(func(key string) ([]byte, error) {
 		return []byte(key), nil
 	})
