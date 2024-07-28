@@ -17,7 +17,7 @@ all:  format build
 
 .PHONY: build
 build: tidy # compile source code, auto adding/removing dependency packages depending on "tidy" target
-	go build -gcflags "all=-N -l" -v -ldflags "$(GO_LDFLAGS)" -o $(OUTPUT_DIR)/dCache $(ROOT_DIR)/example/main.go
+	go build -gcflags "all=-N -l" -v -ldflags "$(GO_LDFLAGS)" -o $(OUTPUT_DIR)/Cache $(ROOT_DIR)/example/main.go
 
 .PHONY: format
 format: # format source code
